@@ -15,8 +15,7 @@ export default {
       if (isNaN(jstNow.getTime())) {
         return new Response("Invalid date format. Use YYYY-MM-DD", { status: 400 });
       }
-    }
-    else {
+    } else {
       jstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
     }
 
@@ -25,14 +24,11 @@ export default {
 
     if (testType === "lunch") {
       manualTestType = "lunch_test";
-    }
-    else if (testType === "dinner") {
+    } else if (testType === "dinner") {
       manualTestType = "dinner_test";
-    }
-    else if (testType === "preview") {
+    } else if (testType === "preview") {
       manualTestType = "preview_test";
-    }
-    else {
+    } else {
       return new Response("Invalid test type. Use ?test=lunch, ?test=dinner, or ?test=preview", { status: 400 });
     }
 
@@ -63,90 +59,80 @@ export default {
       messageTitle = (trigger === "lunch_test") 
         ? `【${dateString}】(TEST) 日替わりランチ` 
         : `【${dateString}】本日の日替わりランチ`;
-      
       baseRowSelector = "section table tr:nth-child(2)";
 
       try {
-        const menuText = await scrapeDynamicMenu(baseRowSelector, jstNow, 0);
+        const { menuText, usedUrl } = await scrapeDynamicMenu(baseRowSelector, jstNow, 0);
         if (menuText && !menuText.includes("お休み")) {
           await postToDiscord(env.DISCORD_WEBHOOK_URL, {
             embeds: [{
               title: messageTitle,
               description: `**${menuText}**`,
               color: 16752762,
-              footer: { text: "http://www.gakushoku.com/univ_mn2.phpより引用" },
+              footer: { text: `${usedUrl}より引用` },
             }],
           });
         }
-      }catch (error) {
+      } catch (error) {
         console.error(`Error during ${mealType} scraping:`, error);
         await postToDiscord(env.DISCORD_WEBHOOK_URL, { content: `**Botエラー**\n${mealType}のスクレイピング中にエラーが発生しました。\n\`${error.message}\`` });
       }
-
-    }
-    else if (trigger === "30 6 * * *" || trigger === "dinner_test") {
+      
+    } else if (trigger === "30 6 * * *" || trigger === "dinner_test") {
       mealType = "dinner";
       messageTitle = (trigger === "dinner_test")
         ? `【${dateString}】(TEST) 本日の夕食セット`
         : `【${dateString}】本日の夕食セット`;
-      
       baseRowSelector = "section table tr:nth-child(5)";
 
       try {
-        const menuText = await scrapeDynamicMenu(baseRowSelector, jstNow, 0);
+        const { menuText, usedUrl } = await scrapeDynamicMenu(baseRowSelector, jstNow, 0);
         if (menuText && !menuText.includes("お休み")) {
           await postToDiscord(env.DISCORD_WEBHOOK_URL, {
             embeds: [{
               title: messageTitle,
               description: `**${menuText}**`,
               color: 10079487,
-              footer: { text: "http://www.gakushoku.com/univ_mn2.phpより引用" },
+              footer: { text: `${usedUrl}より引用` },
             }],
           });
         }
-      }catch (error) {
+      } catch (error) {
         console.error(`Error during ${mealType} scraping:`, error);
         await postToDiscord(env.DISCORD_WEBHOOK_URL, { content: `**Botエラー**\n${mealType}のスクレイピング中にエラーが発生しました。\n\`${error.message}\`` });
       }
 
-    }
-    else if (trigger === "0 10 * * *" || trigger === "preview_test") {
+    } else if (trigger === "0 10 * * *" || trigger === "preview_test") {
       mealType = "preview";
-      let targetDate;
-      let lunchMenu = "";
-      let dinnerMenu = "";
-      let nextBusinessDayFound = false;
+      
+      const dayOffset = 1;
+      const targetDate = new Date(jstNow.getTime() + (dayOffset * 24 * 60 * 60 * 1000));
+      const tmrMonth = targetDate.getUTCMonth() + 1;
+      const tmrDay = targetDate.getUTCDate();
+      const tmrWeekday = weekdays[targetDate.getUTCDay()];
+      const tomorrowDateString = `${tmrMonth}月${tmrDay}日(${tmrWeekday})`;
+
+      messageTitle = (trigger === "preview_test")
+        ? `【${tomorrowDateString}】(TEST) 明日のメニュー予告`
+        : `【${tomorrowDateString}】明日のメニュー予告`;
 
       try {
-        for (let dayOffset = 1; dayOffset <= 7; dayOffset++) {
-          
-          const lunchSelector = "section table tr:nth-child(2)";
-          const tempLunchMenu = await scrapeDynamicMenu(lunchSelector, jstNow, dayOffset);
-          
-          if (tempLunchMenu && !tempLunchMenu.includes("お休み")) {
-            nextBusinessDayFound = true;
-            lunchMenu = tempLunchMenu;
-            targetDate = new Date(jstNow.getTime() + (dayOffset * 24 * 60 * 60 * 1000));
-            
-            const dinnerSelector = "section table tr:nth-child(5)";
-            dinnerMenu = await scrapeDynamicMenu(dinnerSelector, jstNow, dayOffset);
-            
-            break; 
-          }
-        }
+        const lunchSelector = "section table tr:nth-child(2)";
+        const dinnerSelector = "section table tr:nth-child(5)";
         
-        if (nextBusinessDayFound) {
-          const tmrMonth = targetDate.getUTCMonth() + 1;
-          const tmrDay = targetDate.getUTCDate();
-          const tmrWeekday = weekdays[targetDate.getUTCDay()];
-          const targetDateString = `${tmrMonth}月${tmrDay}日(${tmrWeekday})`;
+        const { menuText: lunchMenu, usedUrl } = await scrapeDynamicMenu(lunchSelector, jstNow, dayOffset);
+        const { menuText: dinnerMenu } = await scrapeDynamicMenu(dinnerSelector, jstNow, dayOffset);
 
-          messageTitle = (trigger === "preview_test")
-            ? `【${targetDateString}】(TEST) 次のメニュー予告`
-            : `【${targetDateString}】次のメニュー予告`;
+        const isLunchValid = (lunchMenu && !lunchMenu.includes("お休み"));
+        const isDinnerValid = (dinnerMenu && !dinnerMenu.includes("お休み"));
 
-          const lunchText = (lunchMenu && !lunchMenu.includes("お休み")) ? lunchMenu : "（情報なし/お休み）";
-          const dinnerText = (dinnerMenu && !dinnerMenu.includes("お休み")) ? dinnerMenu : "（情報なし/お休み）";
+        if (!isLunchValid && !isDinnerValid) {
+          await postToDiscord(env.DISCORD_WEBHOOK_URL, {
+            content: `【${tomorrowDateString}】明日はお休みです。`,
+          });
+        } else {
+          const lunchText = isLunchValid ? lunchMenu : "（情報なし/お休み）";
+          const dinnerText = isDinnerValid ? dinnerMenu : "（情報なし/お休み）";
 
           await postToDiscord(env.DISCORD_WEBHOOK_URL, {
             embeds: [{
@@ -156,18 +142,17 @@ export default {
                 { name: "🌞 日替わりランチ", value: `**${lunchText}**`, inline: false },
                 { name: "🌙 夕食セット", value: `**${dinnerText}**`, inline: false }
               ],
-              footer: { text: "http://www.gakushoku.com/univ_mn2.phpより引用" },
+              footer: { text: `${usedUrl}より引用` },
             }],
           });
         }
 
-      }catch (error) {
+      } catch (error) {
         console.error(`Error during ${mealType} scraping:`, error);
         await postToDiscord(env.DISCORD_WEBHOOK_URL, { content: `**Botエラー**\n明日のメニューのスクレイピング中にエラーが発生しました。\n\`${error.message}\`` });
       }
     
-    }
-    else {
+    } else {
       console.log(`Scheduled time does not match: ${event ? event.cron : 'manual'}`);
       return;
     }
@@ -183,19 +168,19 @@ async function scrapeDynamicMenu(baseRowSelector, jstNow, dayOffset = 0) {
   
   const dayOfWeek = targetDate.getUTCDay();
   
+  let url = "";
+
   if (dayOfWeek === 0 || dayOfWeek === 6) {
-    return "本日はお休みです";
+    return { menuText: "本日はお休みです", usedUrl: url };
   }
   const columnIndex = dayOfWeek + 1;
   const finalSelector = `${baseRowSelector} td:nth-child(${columnIndex})`;
 
   const weekNumber = getWeekNumber(targetDate);
-  let url;
   
   if (weekNumber % 2 === 0) {
     url = "http://www.gakushoku.com/univ_mn1.php";
-  }
-  else {
+  } else {
     url = "http://www.gakushoku.com/univ_mn2.php";
   }
 
@@ -222,7 +207,7 @@ async function scrapeDynamicMenu(baseRowSelector, jstNow, dayOffset = 0) {
 
   await rewriter.transform(response).arrayBuffer();
   
-  return menuText.trim();
+  return { menuText: menuText.trim(), usedUrl: url };
 }
 
 async function postToDiscord(webhookURL, payload) {
