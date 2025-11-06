@@ -67,9 +67,9 @@ export default {
           await postToDiscord(env.DISCORD_WEBHOOK_URL, {
             embeds: [{
               title: messageTitle,
-              description: `**${menuText}**\n\n🕒 1時間後に販売開始！`,
+              description: `**${menuText}**\n\n🕒 11:00から販売開始！`,
               color: 16752762,
-              footer: { text: `${usedUrl}より引用` },
+              footer: { text: `${usedUrl} より引用` },
             }],
           });
         }
@@ -91,9 +91,9 @@ export default {
           await postToDiscord(env.DISCORD_WEBHOOK_URL, {
             embeds: [{
               title: messageTitle,
-              description: `**${menuText}**\n\n🕒 1時間後に販売開始！`,
+              description: `**${menuText}**\n\n🕒 16:30から販売開始！`,
               color: 10079487,
-              footer: { text: `${usedUrl}より引用` },
+              footer: { text: `${usedUrl} より引用` },
             }],
           });
         }
@@ -142,7 +142,7 @@ export default {
                 { name: "🌞 日替わりランチ", value: `**${lunchText}**`, inline: false },
                 { name: "🌙 夕食セット", value: `**${dinnerText}**`, inline: false }
               ],
-              footer: { text: `${usedUrl}より引用` },
+              footer: { text: `${usedUrl} より引用` },
             }],
           });
         }
@@ -171,7 +171,7 @@ async function scrapeDynamicMenu(baseRowSelector, jstNow, dayOffset = 0) {
   let url = "";
 
   if (dayOfWeek === 0 || dayOfWeek === 6) {
-    return { menuText: "本日はお休みです", usedUrl: url };
+    return { menuText: "本日はお休みです。", usedUrl: url };
   }
   const columnIndex = dayOfWeek + 1;
   const finalSelector = `${baseRowSelector} td:nth-child(${columnIndex})`;
