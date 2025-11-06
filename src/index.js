@@ -57,7 +57,7 @@ export default {
     if (trigger === "0 1 * * *" || trigger === "lunch_test") {
       mealType = "lunch";
       messageTitle = (trigger === "lunch_test") 
-        ? `【${dateString}】(TEST) 日替わりランチ` 
+        ? `【${dateString}】本日の日替わりランチ(TEST)` 
         : `【${dateString}】本日の日替わりランチ`;
       baseRowSelector = "section table tr:nth-child(2)";
 
@@ -67,7 +67,7 @@ export default {
           await postToDiscord(env.DISCORD_WEBHOOK_URL, {
             embeds: [{
               title: messageTitle,
-              description: `**${menuText}**`,
+              description: `**${menuText}**\n\n🕒 1時間後に販売開始！`,
               color: 16752762,
               footer: { text: `${usedUrl}より引用` },
             }],
@@ -81,7 +81,7 @@ export default {
     } else if (trigger === "30 6 * * *" || trigger === "dinner_test") {
       mealType = "dinner";
       messageTitle = (trigger === "dinner_test")
-        ? `【${dateString}】(TEST) 本日の夕食セット`
+        ? `【${dateString}】本日の夕食セット(TEST)`
         : `【${dateString}】本日の夕食セット`;
       baseRowSelector = "section table tr:nth-child(5)";
 
@@ -91,7 +91,7 @@ export default {
           await postToDiscord(env.DISCORD_WEBHOOK_URL, {
             embeds: [{
               title: messageTitle,
-              description: `**${menuText}**`,
+              description: `**${menuText}**\n\n🕒 1時間後に販売開始！`,
               color: 10079487,
               footer: { text: `${usedUrl}より引用` },
             }],
@@ -113,7 +113,7 @@ export default {
       const tomorrowDateString = `${tmrMonth}月${tmrDay}日(${tmrWeekday})`;
 
       messageTitle = (trigger === "preview_test")
-        ? `【${tomorrowDateString}】(TEST) 明日のメニュー予告`
+        ? `【${tomorrowDateString}】明日のメニュー予告(TEST)`
         : `【${tomorrowDateString}】明日のメニュー予告`;
 
       try {
