@@ -6,229 +6,131 @@ export default {
     const dateParam = url.searchParams.get("date"); 
 
     if (!providedKey || providedKey !== env.TEST_SECRET_KEY) {
-      return new Response("Unauthorized: Invalid or missing secret key.", { status: 403 });
+      return new Response("Unauthorized", { status: 403 });
     }
 
-    let jstNow;
-    if (dateParam) {
-      jstNow = new Date(dateParam + "T12:00:00+09:00"); 
-      if (isNaN(jstNow.getTime())) {
-        return new Response("Invalid date format. Use YYYY-MM-DD", { status: 400 });
-      }
-    } else {
-      jstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
-    }
+    let jstNow = dateParam 
+      ? new Date(dateParam + "T12:00:00+09:00") 
+      : new Date(Date.now() + 9 * 60 * 60 * 1000);
 
     let manualTestType = null;
-    let responseMessage = `OK: Test triggered for ${jstNow.toISOString().split('T')[0]}.`;
-
-    if (testType === "lunch") {
-      manualTestType = "lunch_test";
-    } else if (testType === "dinner") {
-      manualTestType = "dinner_test";
-    } else if (testType === "preview") {
-      manualTestType = "preview_test";
-    } else {
-      return new Response("Invalid test type. Use ?test=lunch, ?test=dinner, or ?test=preview", { status: 400 });
-    }
+    if (testType === "lunch") manualTestType = "lunch_test";
+    else if (testType === "dinner") manualTestType = "dinner_test";
+    else if (testType === "preview") manualTestType = "preview_test";
+    else return new Response("Invalid test type", { status: 400 });
 
     await this.scheduled(null, env, ctx, manualTestType, jstNow); 
-    
-    return new Response(responseMessage, { status: 200 });
+    return new Response(`OK: Test triggered for ${jstNow.toLocaleDateString('ja-JP')}.`, { status: 200 });
   },
 
   async scheduled(event, env, ctx, manualTestType = null, manualDate = null) {
-    
     const jstNow = manualDate || new Date(Date.now() + 9 * 60 * 60 * 1000);
-    
-    const month = jstNow.getUTCMonth() + 1;
-    const day = jstNow.getUTCDate();
     const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
-    const dayOfWeekIndex = jstNow.getUTCDay();
-    const weekday = weekdays[dayOfWeekIndex];
-    const dateString = `${month}月${day}日(${weekday})`;
-
-    let mealType;
-    let baseRowSelector;
-    let messageTitle;
-
     const trigger = manualTestType || (event ? event.cron : null);
 
+    //当日通知(lunch)
     if (trigger === "0 1 * * *" || trigger === "lunch_test") {
-      mealType = "lunch";
-      messageTitle = (trigger === "lunch_test") 
-        ? `【${dateString}】本日の日替わりランチ(TEST)` 
-        : `【${dateString}】本日の日替わりランチ`;
-      baseRowSelector = "section table tr:nth-child(2)";
-
       try {
-        const { menuText, usedUrl } = await scrapeDynamicMenu(baseRowSelector, jstNow, 0);
-        if (menuText && !menuText.includes("お休み")) {
+        const res = await scrapeByExactColumn(2, jstNow, 0);
+        if (res.dateMatch && res.menuText && !res.menuText.includes("お休み")) {
+          const dateStr = `${jstNow.getUTCMonth() + 1}月${jstNow.getUTCDate()}日(${weekdays[jstNow.getUTCDay()]})`;
           await postToDiscord(env.DISCORD_WEBHOOK_URL, {
             embeds: [{
-              title: messageTitle,
-              description: `**${menuText}**\n\n🕒 11:00から販売開始！`,
+              title: `【${dateStr}】本日の日替わりランチ`,
+              description: `**${res.menuText}**\n\n🕒 11:00から販売開始！`,
               color: 16752762,
-              footer: { text: `${usedUrl} より引用` },
+              footer: { text: `${res.usedUrl} より引用` },
             }],
           });
         }
-      } catch (error) {
-        console.error(`Error during ${mealType} scraping:`, error);
-        await postToDiscord(env.DISCORD_WEBHOOK_URL, { content: `**Botエラー**\n${mealType}のスクレイピング中にエラーが発生しました。\n\`${error.message}\`` });
-      }
-      
+      } catch (e) { console.error(e); }
+
+    //当日通知(dinner)
     } else if (trigger === "30 6 * * *" || trigger === "dinner_test") {
-      mealType = "dinner";
-      messageTitle = (trigger === "dinner_test")
-        ? `【${dateString}】本日の夕食セット(TEST)`
-        : `【${dateString}】本日の夕食セット`;
-      baseRowSelector = "section table tr:nth-child(5)";
-
       try {
-        const { menuText, usedUrl } = await scrapeDynamicMenu(baseRowSelector, jstNow, 0);
-        if (menuText && !menuText.includes("お休み")) {
+        const res = await scrapeByExactColumn(5, jstNow, 0);
+        if (res.dateMatch && res.menuText && !res.menuText.includes("お休み")) {
+          const dateStr = `${jstNow.getUTCMonth() + 1}月${jstNow.getUTCDate()}日(${weekdays[jstNow.getUTCDay()]})`;
           await postToDiscord(env.DISCORD_WEBHOOK_URL, {
             embeds: [{
-              title: messageTitle,
-              description: `**${menuText}**\n\n🕒 16:30から販売開始！`,
+              title: `【${dateStr}】本日の夕食セット`,
+              description: `**${res.menuText}**\n\n🕒 16:30から販売開始！`,
               color: 10079487,
-              footer: { text: `${usedUrl} より引用` },
+              footer: { text: `${res.usedUrl} より引用` },
             }],
           });
         }
-      } catch (error) {
-        console.error(`Error during ${mealType} scraping:`, error);
-        await postToDiscord(env.DISCORD_WEBHOOK_URL, { content: `**Botエラー**\n${mealType}のスクレイピング中にエラーが発生しました。\n\`${error.message}\`` });
-      }
+      } catch (e) { console.error(e); }
 
+    //preview
     } else if (trigger === "0 10 * * *" || trigger === "preview_test") {
-      mealType = "preview";
-      
-      const dayOffset = 1;
-      const targetDate = new Date(jstNow.getTime() + (dayOffset * 24 * 60 * 60 * 1000));
-      const tmrMonth = targetDate.getUTCMonth() + 1;
-      const tmrDay = targetDate.getUTCDate();
-      const tmrWeekday = weekdays[targetDate.getUTCDay()];
-      const tomorrowDateString = `${tmrMonth}月${tmrDay}日(${tmrWeekday})`;
-
-      messageTitle = (trigger === "preview_test")
-        ? `【${tomorrowDateString}】明日のメニュー予告(TEST)`
-        : `【${tomorrowDateString}】明日のメニュー予告`;
-
       try {
-        const lunchSelector = "section table tr:nth-child(2)";
-        const dinnerSelector = "section table tr:nth-child(5)";
-        
-        const { menuText: lunchMenu, usedUrl } = await scrapeDynamicMenu(lunchSelector, jstNow, dayOffset);
-        const { menuText: dinnerMenu } = await scrapeDynamicMenu(dinnerSelector, jstNow, dayOffset);
+        const targetDate = new Date(jstNow.getTime() + (24 * 60 * 60 * 1000));
+        const tmrDateStr = `${targetDate.getUTCMonth() + 1}月${targetDate.getUTCDate()}日(${weekdays[targetDate.getUTCDay()]})`;
 
-        const isLunchValid = (lunchMenu && !lunchMenu.includes("お休み"));
-        const isDinnerValid = (dinnerMenu && !dinnerMenu.includes("お休み"));
+        const resLunch = await scrapeByExactColumn(2, jstNow, 1);
+        const resDinner = await scrapeByExactColumn(5, jstNow, 1);
 
-        if (!isLunchValid && !isDinnerValid) {
-          await postToDiscord(env.DISCORD_WEBHOOK_URL, {
-            content: `【${tomorrowDateString}】明日はお休みです。`,
-          });
-        } else {
-          const lunchText = isLunchValid ? lunchMenu : "（情報なし/お休み）";
-          const dinnerText = isDinnerValid ? dinnerMenu : "（情報なし/お休み）";
+        if (resLunch.dateMatch || resDinner.dateMatch) {
+          const lText = (resLunch.menuText && !resLunch.menuText.includes("お休み")) ? resLunch.menuText : "（情報なし/お休み）";
+          const dText = (resDinner.menuText && !resDinner.menuText.includes("お休み")) ? resDinner.menuText : "（情報なし/お休み）";
 
           await postToDiscord(env.DISCORD_WEBHOOK_URL, {
             embeds: [{
-              title: messageTitle,
+              title: `【${tmrDateStr}】明日のメニュー予告`,
               color: 34168,
               fields: [
-                { name: "🌞 日替わりランチ", value: `**${lunchText}**`, inline: false },
-                { name: "🌙 夕食セット", value: `**${dinnerText}**`, inline: false }
+                { name: "🌞 日替わりランチ", value: `**${lText}**`, inline: false },
+                { name: "🌙 夕食セット", value: `**${dText}**`, inline: false }
               ],
-              footer: { text: `${usedUrl} より引用` },
+              footer: { text: `${resLunch.usedUrl || resDinner.usedUrl || ""} より引用` },
             }],
           });
+        } else {
+          await postToDiscord(env.DISCORD_WEBHOOK_URL, { content: `【${tmrDateStr}】明日はお休みです。` });
         }
-
-      } catch (error) {
-        console.error(`Error during ${mealType} scraping:`, error);
-        await postToDiscord(env.DISCORD_WEBHOOK_URL, { content: `**Botエラー**\n明日のメニューのスクレイピング中にエラーが発生しました。\n\`${error.message}\`` });
-      }
-    
-    } else {
-      console.log(`Scheduled time does not match: ${event ? event.cron : 'manual'}`);
-      return;
+      } catch (e) { console.error(e); }
     }
   },
 };
 
-async function scrapeDynamicMenu(baseRowSelector, jstNow, dayOffset = 0) {
-  
-  let targetDate = jstNow;
-  if (dayOffset > 0) {
-    targetDate = new Date(jstNow.getTime() + (dayOffset * 24 * 60 * 60 * 1000));
-  }
-  
-  const dayOfWeek = targetDate.getUTCDay();
-  
-  let url = "";
+async function scrapeByExactColumn(rowIndex, jstNow, dayOffset) {
+  const targetDate = new Date(jstNow.getTime() + (dayOffset * 24 * 60 * 60 * 1000));
+  const targetDay = targetDate.getUTCDate().toString(); 
+  const urls = ["http://www.gakushoku.com/univ_mn1.php", "http://www.gakushoku.com/univ_mn2.php"];
 
-  if (dayOfWeek === 0 || dayOfWeek === 6) {
-    return { menuText: "本日はお休みです。", usedUrl: url };
-  }
-  const columnIndex = dayOfWeek + 1;
-  const finalSelector = `${baseRowSelector} td:nth-child(${columnIndex})`;
+  for (const url of urls) {
+    try {
+      const response = await fetch(url);
+      const html = await response.text();
+      const rows = html.match(/<tr[^>]*>([\s\S]*?)<\/tr>/gi) || [];
+      if (!rows[0]) continue;
 
-  const weekNumber = getWeekNumber(targetDate);
-  
-  if (weekNumber % 2 === 0) {
-    url = "http://www.gakushoku.com/univ_mn1.php";
-  } else {
-    url = "http://www.gakushoku.com/univ_mn2.php";
-  }
-
-  let menuText = "";
-  let found = false;
-
-  class ElementHandler {
-    text(textChunk) {
-      if (found) return;
-      menuText += textChunk.text;
-      if (textChunk.last) {
-        found = true;
+      const dateCells = rows[0].match(/<(?:td|th)[^>]*>([\s\S]*?)<\/(?:td|th)>/gi) || [];
+      let colIndex = -1;
+      for (let i = 0; i < dateCells.length; i++) {
+        const cellText = dateCells[i].replace(/<[^>]*>/g, "").trim();
+        const dayMatch = cellText.match(/\d+/); 
+        if (dayMatch && dayMatch[0] === targetDay) {
+          colIndex = i;
+          break;
+        }
       }
-    }
+
+      if (colIndex !== -1 && rows[rowIndex - 1]) {
+        const menuCells = rows[rowIndex - 1].match(/<(?:td|th)[^>]*>([\s\S]*?)<\/(?:td|th)>/gi) || [];
+        if (menuCells[colIndex]) {
+          const menuText = menuCells[colIndex].replace(/<[^>]*>/g, "\n").replace(/\s+/g, "\n").trim();
+          if (menuText && menuText.length > 1) {
+            return { menuText: menuText, usedUrl: url, dateMatch: true };
+          }
+        }
+      }
+    } catch (e) { console.error(e); }
   }
-
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch URL: ${response.status}`);
-  }
-
-  const rewriter = new HTMLRewriter()
-    .on(finalSelector, new ElementHandler());
-
-  await rewriter.transform(response).arrayBuffer();
-  
-  return { menuText: menuText.trim(), usedUrl: url };
+  return { menuText: "お休み", usedUrl: null, dateMatch: false };
 }
 
-async function postToDiscord(webhookURL, payload) {
-  if (!webhookURL) {
-      throw new Error("DISCORD_WEBHOOK_URL is not set.");
-  }
-  const response = await fetch(webhookURL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to send Discord message: ${response.status}`);
-  }
-}
-
-function getWeekNumber(d) {
-  d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-  var yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  var weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
-  return weekNo;
+async function postToDiscord(url, payload) {
+  await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
 }
