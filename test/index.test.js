@@ -38,10 +38,17 @@ describe('動作確認エンドポイント', () => {
 		assert.equal(res.status, 404);
 	});
 
-	it('キーが違う・クエリで渡した場合は 401 で、取得元にも Discord にもアクセスしない', async () => {
+	it('キーがない・違う場合は 401 で、取得元にも Discord にもアクセスしない', async () => {
+		assert.equal((await worker.fetch(request('test=lunch', {}), env)).status, 401);
 		assert.equal((await worker.fetch(request('test=lunch', { Authorization: 'Bearer wrong' }), env)).status, 401);
-		assert.equal((await worker.fetch(request('test=lunch&key=s3cret', {}), env)).status, 401);
+		assert.equal((await worker.fetch(request('test=lunch&key=wrong', {}), env)).status, 401);
 		assert.equal(calls.length, 0);
+	});
+
+	it('ブラウザ用に ?key= でも認証できる（前後の空白は無視）', async () => {
+		assert.equal((await worker.fetch(request('test=lunch&date=2026-11-24&key=s3cret', {}), env)).status, 200);
+		assert.equal((await worker.fetch(request('test=lunch&date=2026-11-24&key=%20s3cret%0A', {}), env)).status, 200);
+		assert.equal(posts().length, 0);
 	});
 
 	it('既定は投稿せずに結果を返す', async () => {

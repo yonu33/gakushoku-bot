@@ -42,7 +42,7 @@
 - **取得したテキストは外部入力として扱う。** 取得元が改ざんされても Discord に危険な内容が流れないよう、リンクを除去し、Markdown とメンションを無効化して、200 文字で切り詰めます（`src/discord.js`）。
 - **取得に失敗したときは「お休み」と告知しない。** 失敗はログに残し、`ALERT_WEBHOOK_URL` が設定されていればそちらに通知します。
 - **シークレットはリポジトリに置かない。** Webhook URL などは `wrangler secret` で管理します。ローカル用の `.dev.vars` は `.gitignore` に入っています。
-- **動作確認エンドポイントは既定で投稿しない。** キーは URL ではなくヘッダーで渡します（URL はアクセスログに残るため）。
+- **動作確認エンドポイントは既定で投稿しない。** キーが漏れても、`post=1` を付けない限り Discord には何も流れません。
 
 ## セットアップ
 
@@ -58,16 +58,23 @@ npm run deploy
 
 ### デプロイ済みの Worker
 
-```sh
-curl -H "Authorization: Bearer <TEST_SECRET_KEY>" "https://gakushoku-bot.<サブドメイン>.workers.dev/?test=preview&date=2026-11-24"
+ブラウザで開きます（`キー` は `TEST_SECRET_KEY` に登録した値）。
+
+```
+https://gakushoku-bot.<サブドメイン>.workers.dev/?test=preview&date=2026-11-24&key=キー
 ```
 
-Windows PowerShell では `curl` が別のコマンドを指すので、`curl.exe` と書いてください。
+URL に入れたキーはブラウザの履歴と Cloudflare のログに残ります。気になる場合は、curl でヘッダーとして渡してください（Windows では `curl.exe`）。
+
+```sh
+curl -H "Authorization: Bearer キー" "https://gakushoku-bot.<サブドメイン>.workers.dev/?test=preview"
+```
 
 | パラメータ | 内容                                                                    |
 | ---------- | ----------------------------------------------------------------------- |
 | `test`     | `lunch` / `dinner` / `preview`                                          |
 | `date`     | `YYYY-MM-DD`。「今日」として扱う日付（省略時は今日）。`preview` はその翌日分 |
+| `key`      | キー（ヘッダーで渡す場合は不要）                                        |
 | `post`     | `1` のときだけ実際に Discord に投稿する。省略時は投稿内容を JSON で返すだけ |
 
 ### ローカル

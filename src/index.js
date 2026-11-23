@@ -19,13 +19,15 @@ export default {
 	 */
 	async fetch(request, env) {
 		if (!env.TEST_SECRET_KEY) return new Response('Not Found', { status: 404 });
-		// キーはクエリではなくヘッダーで受け取る（URL はアクセスログや履歴に残るため）
-		if (!(await safeEqual(request.headers.get('Authorization') ?? '', `Bearer ${env.TEST_SECRET_KEY}`))) {
+		const params = new URL(request.url).searchParams;
+		// キーは Authorization ヘッダー（curl 用）か ?key=（ブラウザ用）で受け取る。
+		// ?key= はブラウザ履歴と Cloudflare のログに残るが、手軽さを優先している
+		const provided = /^Bearer\s+(.+)$/i.exec(request.headers.get('Authorization') ?? '')?.[1] ?? params.get('key') ?? '';
+		if (!(await safeEqual(provided.trim(), env.TEST_SECRET_KEY.trim()))) {
 			return new Response('Unauthorized', { status: 401, headers: { 'WWW-Authenticate': 'Bearer' } });
 		}
 		if (request.method !== 'GET') return new Response('Method Not Allowed', { status: 405 });
 
-		const params = new URL(request.url).searchParams;
 		const job = params.get('test');
 		if (!JOBS.includes(job)) return json({ error: 'test には lunch / dinner / preview のいずれかを指定してください' }, 400);
 		const today = params.has('date') ? parseIsoDay(params.get('date')) : jstDay(new Date());
