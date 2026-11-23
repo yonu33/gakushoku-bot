@@ -1,11 +1,13 @@
 {
 	"name": "gakushoku-bot",
-	"version": "0.0.0",
+	"version": "1.2.0",
 	"private": true,
+	"type": "module",
 	"scripts": {
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev --test-scheduled",
-		"start": "wrangler dev --test-scheduled"
+		"start": "wrangler dev --test-scheduled",
+		"test": "node --test \"test/*.test.js\""
 	},
 	"devDependencies": {
 		"wrangler": "^4.45.3"

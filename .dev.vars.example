@@ -1,0 +1,6 @@
+# ローカル開発（npm run dev）用。このファイルを .dev.vars にコピーして値を入れる。
+# .dev.vars は .gitignore 済み。本番の Webhook ではなくテスト用チャンネルの Webhook を使うこと。
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/xxxxxxxx/yyyyyyyy
+TEST_SECRET_KEY=change-me
+# 任意: 取得エラーの通知先（運用者だけが見るチャンネル）
+ALERT_WEBHOOK_URL=

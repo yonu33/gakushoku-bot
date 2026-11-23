@@ -1,146 +1,73 @@
+import { isoDay, jstDay, parseIsoDay } from './date.js';
+import { postToDiscord } from './discord.js';
+import { CRON_JOBS, JOBS, collectErrors, runJob } from './jobs.js';
+import { createPageLoader } from './scraper.js';
+
 export default {
-  async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    const testType = url.searchParams.get("test");
-    const providedKey = url.searchParams.get("key");
-    const dateParam = url.searchParams.get("date"); 
+	async scheduled(controller, env) {
+		const job = CRON_JOBS[controller.cron];
+		if (!job) {
+			console.warn(`未登録の cron です: ${controller.cron}`);
+			return;
+		}
+		await execute(job, jstDay(new Date(controller.scheduledTime)), env, { post: true });
+	},
 
-    if (!providedKey || providedKey !== env.TEST_SECRET_KEY) {
-      return new Response("Unauthorized", { status: 403 });
-    }
+	/**
+	 * 動作確認用のエンドポイント（README の「動作確認」参照）。
+	 * 既定は投稿せずに結果を JSON で返す。post=1 のときだけ実際に投稿する。
+	 */
+	async fetch(request, env) {
+		if (!env.TEST_SECRET_KEY) return new Response('Not Found', { status: 404 });
+		// キーはクエリではなくヘッダーで受け取る（URL はアクセスログや履歴に残るため）
+		if (!(await safeEqual(request.headers.get('Authorization') ?? '', `Bearer ${env.TEST_SECRET_KEY}`))) {
+			return new Response('Unauthorized', { status: 401, headers: { 'WWW-Authenticate': 'Bearer' } });
+		}
+		if (request.method !== 'GET') return new Response('Method Not Allowed', { status: 405 });
 
-    let jstNow = dateParam 
-      ? new Date(dateParam + "T12:00:00+09:00") 
-      : new Date(Date.now() + 9 * 60 * 60 * 1000);
+		const params = new URL(request.url).searchParams;
+		const job = params.get('test');
+		if (!JOBS.includes(job)) return json({ error: 'test には lunch / dinner / preview のいずれかを指定してください' }, 400);
+		const today = params.has('date') ? parseIsoDay(params.get('date')) : jstDay(new Date());
+		if (!today) return json({ error: 'date は YYYY-MM-DD 形式で指定してください' }, 400);
+		const post = params.get('post') === '1';
 
-    let manualTestType = null;
-    if (testType === "lunch") manualTestType = "lunch_test";
-    else if (testType === "dinner") manualTestType = "dinner_test";
-    else if (testType === "preview") manualTestType = "preview_test";
-    else return new Response("Invalid test type", { status: 400 });
-
-    await this.scheduled(null, env, ctx, manualTestType, jstNow); 
-    return new Response(`OK: Test triggered for ${jstNow.toLocaleDateString('ja-JP')}.`, { status: 200 });
-  },
-
-  async scheduled(event, env, ctx, manualTestType = null, manualDate = null) {
-    const jstNow = manualDate || new Date(Date.now() + 9 * 60 * 60 * 1000);
-    const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
-    const trigger = manualTestType || (event ? event.cron : null);
-
-    // 当日通知(lunch)
-    if (trigger === "0 1 * * *" || trigger === "lunch_test") {
-      try {
-        const res = await scrapeByExactColumn(2, jstNow, 0); // ランチは2行目
-        if (res.dateMatch && res.menuText && !res.menuText.includes("お休み")) {
-          const dateStr = `${jstNow.getUTCMonth() + 1}月${jstNow.getUTCDate()}日(${weekdays[jstNow.getUTCDay()]})`;
-          await postToDiscord(env.DISCORD_WEBHOOK_URL, {
-            embeds: [{
-              title: `【${dateStr}】本日の日替わりランチ`,
-              description: `**${res.menuText}**\n\n🕒 11:00から販売開始！`,
-              color: 16752762,
-              footer: { text: `${res.usedUrl} より引用` },
-            }],
-          });
-        }
-      } catch (e) { console.error(e); }
-
-    // 当日通知(dinner)
-    } else if (trigger === "30 6 * * *" || trigger === "dinner_test") {
-      try {
-        const res = await scrapeByExactColumn(6, jstNow, 0); // 夕食は5行目
-        if (res.dateMatch && res.menuText && !res.menuText.includes("お休み")) {
-          const dateStr = `${jstNow.getUTCMonth() + 1}月${jstNow.getUTCDate()}日(${weekdays[jstNow.getUTCDay()]})`;
-          await postToDiscord(env.DISCORD_WEBHOOK_URL, {
-            embeds: [{
-              title: `【${dateStr}】本日の夕食セット`,
-              description: `**${res.menuText}**\n\n🕒 16:30から販売開始！`,
-              color: 10079487,
-              footer: { text: `${res.usedUrl} より引用` },
-            }],
-          });
-        }
-      } catch (e) { console.error(e); }
-
-    // preview
-    } else if (trigger === "0 10 * * *" || trigger === "preview_test") {
-      try {
-        const targetDate = new Date(jstNow.getTime() + (24 * 60 * 60 * 1000));
-        const tmrDateStr = `${targetDate.getUTCMonth() + 1}月${targetDate.getUTCDate()}日(${weekdays[targetDate.getUTCDay()]})`;
-
-        const resLunch = await scrapeByExactColumn(2, jstNow, 1);
-        const resDinner = await scrapeByExactColumn(6, jstNow, 1);
-
-        if (resLunch.dateMatch || resDinner.dateMatch) {
-          const lText = (resLunch.menuText && !resLunch.menuText.includes("お休み")) ? resLunch.menuText : "（情報なし/お休み）";
-          const dText = (resDinner.menuText && !resDinner.menuText.includes("お休み")) ? resDinner.menuText : "（情報なし/お休み）";
-
-          await postToDiscord(env.DISCORD_WEBHOOK_URL, {
-            embeds: [{
-              title: `【${tmrDateStr}】明日のメニュー予告`,
-              color: 34168,
-              fields: [
-                { name: "🌞 日替わりランチ", value: `**${lText}**`, inline: false },
-                { name: "🌙 夕食セット", value: `**${dText}**`, inline: false }
-              ],
-              footer: { text: `${resLunch.usedUrl || resDinner.usedUrl || ""} より引用` },
-            }],
-          });
-        } else {
-          await postToDiscord(env.DISCORD_WEBHOOK_URL, { content: `【${tmrDateStr}】明日はお休みです。` });
-        }
-      } catch (e) { console.error(e); }
-    }
-  },
+		const { day, lookups, payload, errors } = await execute(job, today, env, { post });
+		return json({ job, today: isoDay(today), target: isoDay(day), posted: post && payload !== null, payload, lookups, errors });
+	},
 };
 
-async function scrapeByExactColumn(rowIndex, jstNow, dayOffset) {
-  const targetDate = new Date(jstNow.getTime() + (dayOffset * 24 * 60 * 60 * 1000));
-  const targetDay = targetDate.getUTCDate().toString(); 
-  const urls = ["http://www.gakushoku.com/univ_mn1.php", "http://www.gakushoku.com/univ_mn2.php"];
-
-  for (const url of urls) {
-    try {
-      const response = await fetch(url);
-      const html = await response.text();
-      const rows = html.match(/<tr[^>]*>([\s\S]*?)<\/tr>/gi) || [];
-      if (!rows[0]) continue;
-
-      const dateCells = rows[0].match(/<(?:td|th)[^>]*>([\s\S]*?)<\/(?:td|th)>/gi) || [];
-      let colIndex = -1;
-      
-      // 修正点1: 3月の「3」と、3日の「3」を間違えないように照合
-      for (let i = 0; i < dateCells.length; i++) {
-        const cellText = dateCells[i].replace(/<[^>]*>/g, "").trim();
-        const dayMatch = cellText.match(/(\d+)日/); // 「◯日」という形式から数字だけを抜く
-        if (dayMatch && dayMatch[1] === targetDay) {
-          colIndex = i;
-          break;
-        }
-      }
-
-      if (colIndex !== -1 && rows[rowIndex - 1]) {
-        const menuCells = rows[rowIndex - 1].match(/<(?:td|th)[^>]*>([\s\S]*?)<\/(?:td|th)>/gi) || [];
-        if (menuCells[colIndex]) {
-          // 修正点2: 一行ずつ綺麗に表示するロジック
-          const menuText = menuCells[colIndex]
-            .replace(/<br\s*\/?>/gi, "\n")      // <br>を改行に
-            .replace(/<[^>]*>/g, "")           // その他のタグを削除
-            .split("\n")                       // 一旦バラバラにする
-            .map(line => line.trim())          // 空白を消す
-            .filter(line => line !== "")       // 空行を消す
-            .join("\n");                       // 一行ずつつなぎ直す
-
-          if (menuText && menuText.length > 1) {
-            return { menuText: menuText, usedUrl: url, dateMatch: true };
-          }
-        }
-      }
-    } catch (e) { console.error(e); }
-  }
-  return { menuText: "お休み", usedUrl: null, dateMatch: false };
+async function execute(job, today, env, { post }) {
+	const result = await runJob(job, today, createPageLoader());
+	const errors = collectErrors(result.lookups);
+	if (errors.length) {
+		console.error(`[${job}] 取得エラー`, errors);
+		if (post) await notifyAlert(env, job, errors);
+	}
+	if (post && result.payload) await postToDiscord(env.DISCORD_WEBHOOK_URL, result.payload);
+	return { ...result, errors };
 }
 
-async function postToDiscord(url, payload) {
-  await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+/** 取得エラーを運用者向けチャンネルに通知する（ALERT_WEBHOOK_URL が未設定なら何もしない） */
+async function notifyAlert(env, job, errors) {
+	if (!env.ALERT_WEBHOOK_URL) return;
+	try {
+		const body = errors.join('\n').replaceAll('`', "'").slice(0, 1800);
+		await postToDiscord(env.ALERT_WEBHOOK_URL, { content: `⚠️ gakushoku-bot (${job}) で取得エラー\n\`\`\`\n${body}\n\`\`\`` });
+	} catch (e) {
+		console.error('アラートの送信に失敗しました', e);
+	}
+}
+
+/** 長さや内容に関係なく同じ時間で比較する（ハッシュしてから比べる） */
+async function safeEqual(a, b) {
+	const encoder = new TextEncoder();
+	const [x, y] = await Promise.all([a, b].map(async (s) => new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(s)))));
+	let diff = 0;
+	for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+	return diff === 0;
+}
+
+function json(body, status = 200) {
+	return new Response(JSON.stringify(body, null, 2), { status, headers: { 'Content-Type': 'application/json; charset=utf-8' } });
 }
