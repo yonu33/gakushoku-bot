@@ -28,10 +28,10 @@ export default {
     const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
     const trigger = manualTestType || (event ? event.cron : null);
 
-    //当日通知(lunch)
+    // 当日通知(lunch)
     if (trigger === "0 1 * * *" || trigger === "lunch_test") {
       try {
-        const res = await scrapeByExactColumn(2, jstNow, 0);
+        const res = await scrapeByExactColumn(2, jstNow, 0); // ランチは2行目
         if (res.dateMatch && res.menuText && !res.menuText.includes("お休み")) {
           const dateStr = `${jstNow.getUTCMonth() + 1}月${jstNow.getUTCDate()}日(${weekdays[jstNow.getUTCDay()]})`;
           await postToDiscord(env.DISCORD_WEBHOOK_URL, {
@@ -45,10 +45,10 @@ export default {
         }
       } catch (e) { console.error(e); }
 
-    //当日通知(dinner)
+    // 当日通知(dinner)
     } else if (trigger === "30 6 * * *" || trigger === "dinner_test") {
       try {
-        const res = await scrapeByExactColumn(5, jstNow, 0);
+        const res = await scrapeByExactColumn(6, jstNow, 0); // 夕食は5行目
         if (res.dateMatch && res.menuText && !res.menuText.includes("お休み")) {
           const dateStr = `${jstNow.getUTCMonth() + 1}月${jstNow.getUTCDate()}日(${weekdays[jstNow.getUTCDay()]})`;
           await postToDiscord(env.DISCORD_WEBHOOK_URL, {
@@ -62,14 +62,14 @@ export default {
         }
       } catch (e) { console.error(e); }
 
-    //preview
+    // preview
     } else if (trigger === "0 10 * * *" || trigger === "preview_test") {
       try {
         const targetDate = new Date(jstNow.getTime() + (24 * 60 * 60 * 1000));
         const tmrDateStr = `${targetDate.getUTCMonth() + 1}月${targetDate.getUTCDate()}日(${weekdays[targetDate.getUTCDay()]})`;
 
         const resLunch = await scrapeByExactColumn(2, jstNow, 1);
-        const resDinner = await scrapeByExactColumn(5, jstNow, 1);
+        const resDinner = await scrapeByExactColumn(6, jstNow, 1);
 
         if (resLunch.dateMatch || resDinner.dateMatch) {
           const lText = (resLunch.menuText && !resLunch.menuText.includes("お休み")) ? resLunch.menuText : "（情報なし/お休み）";
@@ -108,10 +108,12 @@ async function scrapeByExactColumn(rowIndex, jstNow, dayOffset) {
 
       const dateCells = rows[0].match(/<(?:td|th)[^>]*>([\s\S]*?)<\/(?:td|th)>/gi) || [];
       let colIndex = -1;
+      
+      // 修正点1: 3月の「3」と、3日の「3」を間違えないように照合
       for (let i = 0; i < dateCells.length; i++) {
         const cellText = dateCells[i].replace(/<[^>]*>/g, "").trim();
-        const dayMatch = cellText.match(/\d+/); 
-        if (dayMatch && dayMatch[0] === targetDay) {
+        const dayMatch = cellText.match(/(\d+)日/); // 「◯日」という形式から数字だけを抜く
+        if (dayMatch && dayMatch[1] === targetDay) {
           colIndex = i;
           break;
         }
@@ -120,7 +122,15 @@ async function scrapeByExactColumn(rowIndex, jstNow, dayOffset) {
       if (colIndex !== -1 && rows[rowIndex - 1]) {
         const menuCells = rows[rowIndex - 1].match(/<(?:td|th)[^>]*>([\s\S]*?)<\/(?:td|th)>/gi) || [];
         if (menuCells[colIndex]) {
-          const menuText = menuCells[colIndex].replace(/<[^>]*>/g, "\n").replace(/\s+/g, "\n").trim();
+          // 修正点2: 一行ずつ綺麗に表示するロジック
+          const menuText = menuCells[colIndex]
+            .replace(/<br\s*\/?>/gi, "\n")      // <br>を改行に
+            .replace(/<[^>]*>/g, "")           // その他のタグを削除
+            .split("\n")                       // 一旦バラバラにする
+            .map(line => line.trim())          // 空白を消す
+            .filter(line => line !== "")       // 空行を消す
+            .join("\n");                       // 一行ずつつなぎ直す
+
           if (menuText && menuText.length > 1) {
             return { menuText: menuText, usedUrl: url, dateMatch: true };
           }
